@@ -1,0 +1,14 @@
+# GLPI cache y logs
+*.log
+files/
+*.cache
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

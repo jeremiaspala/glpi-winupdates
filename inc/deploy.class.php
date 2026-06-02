@@ -255,37 +255,38 @@ class PluginWinupdatesDeploy {
         $info = json_decode($cfg, true);
         if (!$info) return null;
 
-        // Leer estado actual del taskjobstate
+        // Query 1: estado actual del taskjobstate (sin JOIN para evitar problemas con el query builder)
         $iter = $DB->request([
-            'SELECT' => ['tjs.state', 'tjs.date_start', 'tjl.comment', 'tjl.date'],
-            'FROM'   => ['glpi_plugin_glpiinventory_taskjobstates AS tjs'],
-            'LEFT JOIN' => [
-                'glpi_plugin_glpiinventory_taskjoblogs AS tjl' => [
-                    'ON' => 'tjl.plugin_glpiinventory_taskjobstates_id = tjs.id',
-                ],
-            ],
-            'WHERE'  => ['tjs.id' => $info['state_id']],
-            'ORDER'  => ['tjl.date DESC'],
-            'LIMIT'  => 1,
+            'FROM'  => 'glpi_plugin_glpiinventory_taskjobstates',
+            'WHERE' => ['id' => (int)$info['state_id']],
+            'LIMIT' => 1,
         ]);
-
         $row = $iter->current();
         if (!$row) return $info;
 
+        // Query 2: último log de ese state
+        $log_iter = $DB->request([
+            'FROM'  => 'glpi_plugin_glpiinventory_taskjoblogs',
+            'WHERE' => ['plugin_glpiinventory_taskjobstates_id' => (int)$info['state_id']],
+            'ORDER' => ['date DESC'],
+            'LIMIT' => 1,
+        ]);
+        $log = $log_iter->current();
+
         $state_labels = [
-            self::STATE_PREPARED => ['label' => 'Pendiente', 'class' => 'secondary', 'icon' => 'ti-clock'],
-            self::STATE_RUNNING  => ['label' => 'Ejecutando', 'class' => 'info',     'icon' => 'ti-loader'],
-            self::STATE_OK       => ['label' => 'Completado', 'class' => 'success',  'icon' => 'ti-circle-check'],
-            self::STATE_ERROR    => ['label' => 'Error',      'class' => 'danger',   'icon' => 'ti-circle-x'],
-            self::STATE_OK_NOJOB => ['label' => 'OK (sin job)', 'class' => 'success', 'icon' => 'ti-check'],
+            self::STATE_PREPARED => ['label' => 'Pendiente',  'class' => 'secondary', 'icon' => 'ti-clock'],
+            self::STATE_RUNNING  => ['label' => 'Ejecutando', 'class' => 'info',      'icon' => 'ti-loader'],
+            self::STATE_OK       => ['label' => 'Completado', 'class' => 'success',   'icon' => 'ti-circle-check'],
+            self::STATE_ERROR    => ['label' => 'Error',      'class' => 'danger',    'icon' => 'ti-circle-x'],
+            self::STATE_OK_NOJOB => ['label' => 'OK',         'class' => 'success',   'icon' => 'ti-check'],
         ];
 
         $state = (int)$row['state'];
         return array_merge($info, [
-            'state'       => $state,
-            'state_info'  => $state_labels[$state] ?? ['label' => 'Desconocido', 'class' => 'secondary', 'icon' => 'ti-question-mark'],
-            'last_log'    => $row['comment'] ?? '',
-            'last_date'   => $row['date']    ?? '',
+            'state'      => $state,
+            'state_info' => $state_labels[$state] ?? ['label' => 'Desconocido', 'class' => 'secondary', 'icon' => 'ti-question-mark'],
+            'last_log'   => $log['comment'] ?? '',
+            'last_date'  => $log['date']    ?? '',
         ]);
     }
 
@@ -331,52 +332,114 @@ class PluginWinupdatesDeploy {
     }
 
     // ── Historial reciente de deploys ─────────────────────────────────────
+    // Usa queries separadas para evitar problemas con el query builder de GLPI
 
     static function getRecentPushes(int $limit = 20): array {
         global $DB;
 
-        $iter = $DB->request([
-            'SELECT' => [
-                'tjs.id AS state_id',
-                'tjs.state',
-                'tjs.date_start',
-                'tjl.comment',
-                'tjl.date AS log_date',
-                'tj.name AS job_name',
-                't.name AS task_name',
-                'a.name AS agent_name',
-                'c.name AS computer_name',
-                'c.id AS computer_id',
-            ],
-            'FROM'      => ['glpi_plugin_glpiinventory_taskjobstates AS tjs'],
-            'LEFT JOIN' => [
-                'glpi_plugin_glpiinventory_taskjobs AS tj' => [
-                    'FKEY' => ['tj' => 'id', 'tjs' => 'plugin_glpiinventory_taskjobs_id'],
-                ],
-                'glpi_plugin_glpiinventory_tasks AS t' => [
-                    'FKEY' => ['t' => 'id', 'tj' => 'plugin_glpiinventory_tasks_id'],
-                ],
-                'glpi_agents AS a' => [
-                    'FKEY' => ['a' => 'id', 'tjs' => 'agents_id'],
-                ],
-                'glpi_computers AS c' => [
-                    'FKEY'  => ['c' => 'id', 'a' => 'items_id'],
-                    'AND'   => ['a.itemtype' => 'Computer'],
-                ],
-                'glpi_plugin_glpiinventory_taskjoblogs AS tjl' => [
-                    'ON' => 'tjl.plugin_glpiinventory_taskjobstates_id = tjs.id',
-                ],
-            ],
-            'WHERE'  => ['t.name' => ['LIKE', '[WinUpdates]%']],
-            'ORDER'  => ['tjl.date DESC'],
-            'LIMIT'  => $limit,
-        ]);
-
-        $result = [];
-        foreach ($iter as $row) {
-            $result[] = $row;
+        // 1. Tareas creadas por el plugin
+        $tasks = [];
+        foreach ($DB->request([
+            'FROM'  => 'glpi_plugin_glpiinventory_tasks',
+            'WHERE' => ['name' => ['LIKE', '[WinUpdates]%']],
+            'ORDER' => ['date_creation DESC'],
+            'LIMIT' => $limit,
+        ]) as $t) {
+            $tasks[$t['id']] = $t;
         }
-        return $result;
+        if (!$tasks) return [];
+
+        // 2. Taskjobs de esas tareas
+        $jobs = [];
+        foreach ($DB->request([
+            'FROM'  => 'glpi_plugin_glpiinventory_taskjobs',
+            'WHERE' => ['plugin_glpiinventory_tasks_id' => array_keys($tasks)],
+        ]) as $tj) {
+            $jobs[$tj['id']] = $tj;
+        }
+        if (!$jobs) return [];
+
+        // 3. States de esos jobs
+        $states = [];
+        foreach ($DB->request([
+            'FROM'  => 'glpi_plugin_glpiinventory_taskjobstates',
+            'WHERE' => ['plugin_glpiinventory_taskjobs_id' => array_keys($jobs)],
+            'ORDER' => ['id DESC'],
+            'LIMIT' => $limit,
+        ]) as $s) {
+            $states[$s['id']] = $s;
+        }
+        if (!$states) return [];
+
+        // 4. Último log por state
+        $logs = [];
+        foreach ($DB->request([
+            'FROM'  => 'glpi_plugin_glpiinventory_taskjoblogs',
+            'WHERE' => ['plugin_glpiinventory_taskjobstates_id' => array_keys($states)],
+            'ORDER' => ['date DESC'],
+        ]) as $l) {
+            $sid = $l['plugin_glpiinventory_taskjobstates_id'];
+            if (!isset($logs[$sid])) $logs[$sid] = $l;
+        }
+
+        // 5. Agentes y equipos
+        $agent_ids = array_unique(array_column(array_values($states), 'agents_id'));
+        $agents = [];
+        if ($agent_ids) {
+            foreach ($DB->request([
+                'FROM'  => 'glpi_agents',
+                'WHERE' => ['id' => $agent_ids],
+            ]) as $a) {
+                $agents[$a['id']] = $a;
+            }
+        }
+
+        $computer_ids = array_filter(array_unique(array_map(
+            fn($a) => $a['itemtype'] === 'Computer' ? (int)$a['items_id'] : 0,
+            $agents
+        )));
+        $computers = [];
+        if ($computer_ids) {
+            foreach ($DB->request([
+                'FROM'  => 'glpi_computers',
+                'WHERE' => ['id' => $computer_ids],
+            ]) as $c) {
+                $computers[$c['id']] = $c;
+            }
+        }
+
+        // 6. Armar resultado
+        $result = [];
+        foreach ($states as $sid => $state) {
+            $job     = $jobs[$state['plugin_glpiinventory_taskjobs_id']] ?? [];
+            $task    = $tasks[$job['plugin_glpiinventory_tasks_id'] ?? 0] ?? [];
+            $agent   = $agents[$state['agents_id']] ?? [];
+            $comp    = $computers[$agent['items_id'] ?? 0] ?? [];
+            $log     = $logs[$sid] ?? [];
+
+            $result[] = [
+                'state_id'       => $sid,
+                'state'          => $state['state'],
+                'date_start'     => $state['date_start'],
+                'nb_retry'       => $state['nb_retry'],
+                'task_id'        => $task['id'] ?? 0,
+                'task_name'      => $task['name'] ?? '',
+                'task_created'   => $task['date_creation'] ?? '',
+                'job_id'         => $job['id'] ?? 0,
+                'agent_name'     => $agent['name'] ?? '',
+                'remote_addr'    => $agent['remote_addr'] ?? '',
+                'last_contact'   => $agent['last_contact'] ?? '',
+                'computer_id'    => $comp['id'] ?? 0,
+                'computer_name'  => $comp['name'] ?? '',
+                'os_name'        => '',
+                'os_version'     => '',
+                'comment'        => $log['comment'] ?? '',
+                'log_date'       => $log['date'] ?? '',
+            ];
+        }
+
+        usort($result, fn($a, $b) => strcmp($b['task_created'], $a['task_created']));
+        return array_slice($result, 0, $limit);
     }
 
     // ── Utilidades ────────────────────────────────────────────────────────

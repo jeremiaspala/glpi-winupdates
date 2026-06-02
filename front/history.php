@@ -11,85 +11,23 @@ $filter_state    = $_GET['state']    ?? 'all';
 $filter_computer = trim($_GET['q']   ?? '');
 $limit           = max(10, min(200, (int)($_GET['limit'] ?? 50)));
 
-// Consulta de historial
-$where = ['t.name' => ['LIKE', '[WinUpdates]%']];
+// Usar el método centralizado de la clase Deploy (sin JOINs problemáticos)
+$all_rows = PluginWinupdatesDeploy::getRecentPushes($limit);
+
+// Aplicar filtros post-query
+$rows = $all_rows;
 if ($filter_state !== 'all') {
-    $where['tjs.state'] = (int)$filter_state;
+    $rows = array_filter($rows, fn($r) => (string)$r['state'] === $filter_state);
 }
-
-$query = $DB->request([
-    'SELECT' => [
-        'tjs.id AS state_id',
-        'tjs.state',
-        'tjs.date_start',
-        'tjs.nb_retry',
-        't.id AS task_id',
-        't.name AS task_name',
-        't.date_creation AS task_created',
-        'tj.id AS job_id',
-        'a.name AS agent_name',
-        'a.remote_addr',
-        'a.last_contact',
-        'c.id AS computer_id',
-        'c.name AS computer_name',
-        'os.name AS os_name',
-        'osv.name AS os_version',
-    ],
-    'FROM'      => ['glpi_plugin_glpiinventory_taskjobstates AS tjs'],
-    'LEFT JOIN' => [
-        'glpi_plugin_glpiinventory_taskjobs AS tj' => [
-            'FKEY' => ['tj' => 'id', 'tjs' => 'plugin_glpiinventory_taskjobs_id'],
-        ],
-        'glpi_plugin_glpiinventory_tasks AS t' => [
-            'FKEY' => ['t' => 'id', 'tj' => 'plugin_glpiinventory_tasks_id'],
-        ],
-        'glpi_agents AS a' => [
-            'FKEY' => ['a' => 'id', 'tjs' => 'agents_id'],
-        ],
-        'glpi_computers AS c' => [
-            'FKEY' => ['c' => 'id', 'a' => 'items_id'],
-            'AND'  => ['a.itemtype' => 'Computer'],
-        ],
-        'glpi_items_operatingsystems AS ios' => [
-            'FKEY' => ['ios' => 'items_id', 'c' => 'id'],
-            'AND'  => ['ios.itemtype' => 'Computer', 'ios.is_deleted' => 0],
-        ],
-        'glpi_operatingsystems AS os' => [
-            'FKEY' => ['os' => 'id', 'ios' => 'operatingsystems_id'],
-        ],
-        'glpi_operatingsystemversions AS osv' => [
-            'FKEY' => ['osv' => 'id', 'ios' => 'operatingsystemversions_id'],
-        ],
-    ],
-    'WHERE'  => $where,
-    'ORDER'  => ['t.date_creation DESC', 'tjs.id DESC'],
-    'LIMIT'  => $limit,
-]);
-
-$rows = iterator_to_array($query);
-
-// Filtro por nombre de equipo (post-query)
 if ($filter_computer !== '') {
     $rows = array_filter($rows, fn($r) =>
         stripos($r['computer_name'] ?? '', $filter_computer) !== false
     );
 }
+$rows = array_values($rows);
 
-// Último log de cada state
-$state_ids = array_column($rows, 'state_id');
-$logs = [];
-if ($state_ids) {
-    $log_q = $DB->request([
-        'SELECT'  => ['plugin_glpiinventory_taskjobstates_id', 'comment', 'date'],
-        'FROM'    => 'glpi_plugin_glpiinventory_taskjoblogs',
-        'WHERE'   => ['plugin_glpiinventory_taskjobstates_id' => $state_ids],
-        'ORDER'   => ['date DESC'],
-    ]);
-    foreach ($log_q as $l) {
-        $sid = $l['plugin_glpiinventory_taskjobstates_id'];
-        if (!isset($logs[$sid])) $logs[$sid] = $l;
-    }
-}
+// Mapear campos para la vista (la clase ya trae comment y log_date)
+$logs = []; // no necesarios, ya están en $rows
 
 // Estadísticas rápidas
 $stats = ['total' => count($rows), 'ok' => 0, 'error' => 0, 'pending' => 0, 'running' => 0];
@@ -270,9 +208,9 @@ $stateInfo = [
                     : '—' ?>
               </td>
               <td class="small" style="max-width:300px">
-                <?php if ($log): ?>
-                  <span title="<?= Html::cleanInputText($log['date']) ?>">
-                    <?= Html::cleanInputText(mb_substr($log['comment'] ?? '', 0, 120)) ?>
+                <?php if (!empty($row['comment'])): ?>
+                  <span title="<?= Html::cleanInputText($row['log_date'] ?? '') ?>">
+                    <?= Html::cleanInputText(mb_substr($row['comment'], 0, 120)) ?>
                   </span>
                 <?php else: ?>
                   <span class="text-muted">—</span>

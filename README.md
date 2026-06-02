@@ -38,6 +38,9 @@ apt-get update -y && apt-get upgrade -y
 El agente lo levanta en el próximo check-in. Si el agente está accesible en la red, el plugin le manda un wake-up HTTP al puerto 62354 para que lo ejecute de inmediato. El estado (Pendiente / Ejecutando / OK / Error) lo ves en la sección Historial.
 
 ---
+<img width="1875" height="876" alt="Win Updates" src="https://github.com/user-attachments/assets/80fbb431-c1f1-4917-98bd-df1c99e4ea1a" />
+<img width="267" height="702" alt="Win Updates 4" src="https://github.com/user-attachments/assets/f4c710c1-4081-42c0-b843-dafc8be6b289" />
+<img width="1059" height="828" alt="Win Updates 3" src="https://github.com/user-attachments/assets/26d72e64-97f6-495c-98fc-fdb56922afcb" />
 
 ## Requisitos
 

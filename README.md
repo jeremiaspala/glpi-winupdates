@@ -1,8 +1,8 @@
-# glpi-winupdates
+# GLPI-Win Updates
 
 Seguro que en tu trabajo tenés algún equipo con Windows 10 corriendo parches de 2023, algún servidor 2012 que "funciona" y nadie toca, y un par de notebooks con el SO en EOL desde hace meses. El problema no es que no haya actualizaciones disponibles, sino que no tenés visibilidad de qué está al día y qué no. Este plugin lo resuelve.
 
-**glpi-winupdates** es un plugin para GLPI 11 que toma los datos del inventario automático del GLPI Agent y te muestra el estado de actualizaciones de cada equipo — Windows y Linux — con un indicador claro de compliance. Y si encontrás algo desactualizado, podés lanzar la actualización remota directo desde la interfaz, sin WinRM, sin Wazuh, sin agentes adicionales. Solo el GLPI Agent que ya tenés desplegado.
+**GLPI-Win Updates** es un plugin para GLPI 11 que toma los datos del inventario automático del GLPI Agent y te muestra el estado de actualizaciones de cada equipo — Windows y Linux — con un indicador claro de compliance. Y si encontrás algo desactualizado, podés lanzar la actualización remota directo desde la interfaz, sin WinRM, sin Wazuh, sin agentes adicionales. Solo el GLPI Agent que ya tenés desplegado.
 
 ---
 

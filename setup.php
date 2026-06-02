@@ -79,7 +79,9 @@ function _plugin_winupdates_common_init() {
     ];
 
     $PLUGIN_HOOKS['redefine_menus']['winupdates'] = function ($menu) {
-        if (!isset($menu['winupdates'])) {
+        // Siempre aplicar estructura completa; preservar 'types' de menu_toadd
+        $existing_types = $menu['winupdates']['types'] ?? [];
+        {
             $menu['winupdates'] = [
                 'title'   => 'Win Updates',
                 'icon'    => 'ti ti-refresh-alert',
@@ -106,6 +108,7 @@ function _plugin_winupdates_common_init() {
                         'icon'  => 'ti ti-settings',
                     ],
                 ],
+                'types' => $existing_types,
             ];
         }
         return $menu;

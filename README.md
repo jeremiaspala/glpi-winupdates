@@ -49,23 +49,36 @@ El agente lo levanta en el próximo check-in. Si el agente está accesible en la
 
 El GLPI Agent reporta los **hotfixes de Windows instalados** como software con nombre `KBxxxxxxx`
 (tabla `glpi_softwares`, vinculados al equipo vía `glpi_items_softwareversions`, con fecha de
-instalación en `date_install`). El plugin usa esos datos para mostrar, por equipo:
+instalación en `date_install`). El plugin usa esos datos para mostrar, por equipo (botón
+<i class="ti ti-list-details"></i> en la columna **Acciones** del dashboard):
 
-- **Listado completo de KBs instalados**, ordenados por fecha (más reciente primero)
-- **Última fecha de parcheo detectada** y cuántos días pasaron desde entonces
-- Una **estimación de actualizaciones faltantes**: como no existe forma de bajar el catálogo
-  completo de Microsoft a una instalación on-premise, el plugin asume que si pasaron más de
-  ~45 días (más de un ciclo de Patch Tuesday) sin que se reporte un KB nuevo, probablemente
-  haya parches pendientes de instalar (o el agente no está actualizando el inventario)
+- **Listado de KBs instalados**, ordenados por fecha (más reciente primero), con su fecha de instalación
+- **Última fecha de parcheo detectada** y cuántos días pasaron desde entonces (badge de frescura
+  en la columna "Parches detectados" del dashboard: 🟢 ≤45 días / 🟡 46-120 / 🔴 más de 120 días)
+- **Listado de actualizaciones faltantes**, calculado contra un **catálogo de referencia** que
+  cargás vos (ver siguiente sección)
 
-| Antigüedad del último KB | Indicador |
-|---|---|
-| ≤ 45 días | 🟢 Al día |
-| 46–120 días | 🟡 Revisar |
-| > 120 días | 🔴 Posibles faltantes |
+### Catálogo de actualizaciones de referencia y tipos a verificar
 
-Accedé a este detalle desde el botón <i class="ti ti-list-details"></i> en la columna **Acciones**
-de cada equipo Windows en el dashboard.
+No existe forma de bajar el catálogo completo de Microsoft Update a una instalación on-premise,
+así que el plugin **no puede inventar** qué KB falta — necesita que vos le digas qué KBs esperás
+ver instalados en cada versión de Windows. Para eso, en **Win Updates → Configuración** hay dos
+secciones nuevas:
+
+1. **Tipos de actualización a verificar**: checkboxes (Seguridad, Críticas, Opcionales, Funcionalidades,
+   Definiciones de antivirus, Controladores). Solo los tipos marcados se tienen en cuenta al calcular
+   faltantes — por ejemplo, podés auditar nada más Seguridad + Críticas e ignorar el ruido de
+   actualizaciones de Defender o drivers.
+2. **Catálogo de actualizaciones de referencia**: una tabla editable (con botones para agregar/quitar
+   filas) donde cargás, para cada **kernel/build base** (mismo valor que en la tabla de builds de
+   arriba, ej. `10.0.26100`), el **número de KB**, su **tipo**, una descripción y la fecha de
+   publicación. Tras cada Patch Tuesday agregás ahí la(s) acumulativa(s) del mes para las versiones
+   que te interesa auditar.
+
+El plugin compara, equipo por equipo, las entradas del catálogo que matchean su kernel y son de un
+tipo verificado contra los KBs detectados en su inventario — lo que no aparece, se lista como
+**faltante**. Si todavía no cargaste catálogo para una versión de Windows, el detalle del equipo te
+avisa que no puede determinar faltantes para ese SO.
 
 ---
 <img width="1875" height="876" alt="Win Updates" src="https://github.com/user-attachments/assets/80fbb431-c1f1-4917-98bd-df1c99e4ea1a" />

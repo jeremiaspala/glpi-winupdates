@@ -360,6 +360,107 @@ class PluginWinupdatesReport extends CommonGLPI {
         return $results;
     }
 
+    // ── Tipos de actualización (clasificación de Windows Update) ──────────
+    static function getUpdateTypes(): array {
+        return [
+            'security'   => ['label' => 'Seguridad',                         'badge' => 'danger'],
+            'critical'   => ['label' => 'Críticas',                          'badge' => 'danger'],
+            'optional'   => ['label' => 'Opcionales / Generales',            'badge' => 'secondary'],
+            'feature'    => ['label' => 'Funcionalidades',                   'badge' => 'info'],
+            'definition' => ['label' => 'Definiciones (Antivirus/Defender)', 'badge' => 'secondary'],
+            'driver'     => ['label' => 'Controladores',                     'badge' => 'secondary'],
+        ];
+    }
+
+    // Tipos considerados por defecto al calcular actualizaciones faltantes
+    static function getDefaultCheckedTypes(): array {
+        return ['security', 'critical'];
+    }
+
+    static function getCheckedTypes(): array {
+        global $DB;
+        if ($DB->tableExists('glpi_plugin_winupdates_config')) {
+            $iter = $DB->request(['FROM' => 'glpi_plugin_winupdates_config',
+                                  'WHERE' => ['name' => 'checked_update_types'], 'LIMIT' => 1]);
+            if ($row = $iter->current()) {
+                $stored = json_decode($row['value'], true);
+                if (is_array($stored)) return $stored;
+            }
+        }
+        return self::getDefaultCheckedTypes();
+    }
+
+    static function saveCheckedTypes(array $types): void {
+        global $DB;
+        if (!$DB->tableExists('glpi_plugin_winupdates_config')) return;
+        $valid = array_keys(self::getUpdateTypes());
+        $types = array_values(array_intersect($types, $valid));
+        $DB->delete('glpi_plugin_winupdates_config', ['name' => 'checked_update_types']);
+        $DB->insert('glpi_plugin_winupdates_config', [
+            'name'  => 'checked_update_types',
+            'value' => json_encode($types),
+        ]);
+    }
+
+    // ── Catálogo de actualizaciones de referencia (para detectar faltantes) ──
+    // Lo carga el admin a mano tras cada Patch Tuesday: qué KB corresponde
+    // a cada versión de Windows (por kernel base) y de qué tipo es.
+    // Sin esto no hay forma de saber qué actualizaciones "deberían" estar,
+    // ya que no existe acceso al catálogo completo de Microsoft Update desde on-premise.
+    static function getDefaultUpdateCatalog(): array {
+        return [];
+    }
+
+    static function getUpdateCatalog(): array {
+        global $DB;
+        if ($DB->tableExists('glpi_plugin_winupdates_config')) {
+            $iter = $DB->request(['FROM' => 'glpi_plugin_winupdates_config',
+                                  'WHERE' => ['name' => 'update_catalog'], 'LIMIT' => 1]);
+            if ($row = $iter->current()) {
+                $stored = json_decode($row['value'], true);
+                if (is_array($stored)) return $stored;
+            }
+        }
+        return self::getDefaultUpdateCatalog();
+    }
+
+    static function saveUpdateCatalog(array $catalog): void {
+        global $DB;
+        if (!$DB->tableExists('glpi_plugin_winupdates_config')) return;
+        $DB->delete('glpi_plugin_winupdates_config', ['name' => 'update_catalog']);
+        $DB->insert('glpi_plugin_winupdates_config', [
+            'name'  => 'update_catalog',
+            'value' => json_encode(array_values($catalog), JSON_PRETTY_PRINT),
+        ]);
+    }
+
+    // Entradas del catálogo que aplican al kernel del equipo, son de un tipo
+    // marcado para verificar, y no aparecen entre los KBs instalados.
+    static function getMissingUpdates(string $kernelBase, array $installedKbs): array {
+        $catalog      = self::getUpdateCatalog();
+        $checkedTypes = self::getCheckedTypes();
+        $installedSet = array_flip(array_map('strtoupper', $installedKbs));
+
+        $missing = [];
+        foreach ($catalog as $entry) {
+            $kbase = trim($entry['kbase'] ?? '');
+            $type  = $entry['type']  ?? 'optional';
+            $kb    = strtoupper(trim($entry['kb'] ?? ''));
+            if ($kbase === '' || $kb === '') continue;
+            if (!str_starts_with($kernelBase, $kbase)) continue;
+            if (!in_array($type, $checkedTypes, true)) continue;
+            if (isset($installedSet[$kb])) continue;
+
+            $missing[] = [
+                'kb'    => $kb,
+                'type'  => $type,
+                'label' => $entry['label'] ?? '',
+                'date'  => $entry['date']  ?? '',
+            ];
+        }
+        return $missing;
+    }
+
     // ── Detalle de actualizaciones instaladas (KBxxxxxxx) por equipo ──────
     // Viene del inventario del GLPI Agent: los hotfixes de Windows se
     // reportan como software instalado con nombre "KB1234567".

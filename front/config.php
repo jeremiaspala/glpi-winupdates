@@ -69,50 +69,8 @@ if (isset($_GET['reset'])) {
     Html::redirect('config.php');
 }
 
-// Guardar tipos de actualización a verificar (para el cálculo de faltantes)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_update_types'])) {
-    $types = $_POST['check_type'] ?? [];
-    PluginWinupdatesReport::saveCheckedTypes(is_array($types) ? array_map('strval', $types) : []);
-    Session::addMessageAfterRedirect('✓ Tipos de actualización guardados.', true, INFO);
-    Html::redirect('config.php');
-}
-
-// Guardar catálogo de actualizaciones de referencia (para detectar faltantes)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_catalog'])) {
-    $catalog = [];
-    $kbases = $_POST['cat_kbase'] ?? [];
-    $kbs    = $_POST['cat_kb']    ?? [];
-    $types  = $_POST['cat_type']  ?? [];
-    $labels = $_POST['cat_label'] ?? [];
-    $dates  = $_POST['cat_date']  ?? [];
-    foreach ($kbases as $i => $kbase) {
-        $kbase = trim($kbase);
-        $kb    = trim($kbs[$i] ?? '');
-        if ($kbase === '' || $kb === '') continue;
-        $catalog[] = [
-            'kbase' => $kbase,
-            'kb'    => strtoupper($kb),
-            'type'  => trim($types[$i] ?? 'optional'),
-            'label' => trim($labels[$i] ?? ''),
-            'date'  => trim($dates[$i] ?? ''),
-        ];
-    }
-    PluginWinupdatesReport::saveUpdateCatalog($catalog);
-    Session::addMessageAfterRedirect('✓ Catálogo de actualizaciones guardado.', true, INFO);
-    Html::redirect('config.php');
-}
-
-if (isset($_GET['reset_catalog'])) {
-    PluginWinupdatesReport::saveUpdateCatalog([]);
-    Session::addMessageAfterRedirect('✓ Catálogo de actualizaciones vaciado.', true, INFO);
-    Html::redirect('config.php');
-}
-
-$buildTable   = PluginWinupdatesReport::getBuildTable();
-$linuxTable   = PluginWinupdatesReport::getLinuxTable();
-$updateTypes  = PluginWinupdatesReport::getUpdateTypes();
-$checkedTypes = PluginWinupdatesReport::getCheckedTypes();
-$catalog      = PluginWinupdatesReport::getUpdateCatalog();
+$buildTable  = PluginWinupdatesReport::getBuildTable();
+$linuxTable  = PluginWinupdatesReport::getLinuxTable();
 Html::header('Win Updates — Configuración', $_SERVER['PHP_SELF'], 'winupdates', 'winupdates');
 ?>
 <div class="container-fluid p-3" style="max-width:900px">
@@ -246,116 +204,6 @@ Html::header('Win Updates — Configuración', $_SERVER['PHP_SELF'], 'winupdates
     </div>
   </form>
 
-  <!-- ── Tipos de actualización a verificar ── -->
-  <form method="POST" class="mt-4">
-    <?= Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]) ?>
-    <div class="card">
-      <div class="card-header fw-bold">
-        <i class="ti ti-filter me-1"></i> Tipos de actualización a verificar
-      </div>
-      <div class="card-body">
-        <p class="text-muted small mb-2">
-          Elegí qué tipos de actualización del <strong>catálogo de referencia</strong> (abajo) se
-          tienen en cuenta para calcular las <strong>faltantes</strong> de cada equipo. Por ejemplo,
-          podés auditar solo Seguridad y Críticas, e ignorar Definiciones de antivirus o Funcionalidades.
-        </p>
-        <div class="d-flex flex-wrap gap-3">
-          <?php foreach ($updateTypes as $key => $info): ?>
-            <div class="form-check">
-              <input type="checkbox" class="form-check-input" name="check_type[]" id="ct-<?= $key ?>"
-                     value="<?= htmlspecialchars($key) ?>"
-                     <?= in_array($key, $checkedTypes, true) ? 'checked' : '' ?>>
-              <label class="form-check-label" for="ct-<?= $key ?>">
-                <span class="badge bg-<?= $info['badge'] ?>"><?= htmlspecialchars($info['label']) ?></span>
-              </label>
-            </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-      <div class="card-footer">
-        <button type="submit" name="save_update_types" class="btn btn-primary btn-sm">
-          <i class="ti ti-device-floppy me-1"></i> Guardar tipos
-        </button>
-      </div>
-    </div>
-  </form>
-
-  <!-- ── Catálogo de actualizaciones de referencia ── -->
-  <form method="POST" class="mt-4" id="catalog-form">
-    <?= Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]) ?>
-    <div class="card">
-      <div class="card-header fw-bold">
-        <i class="ti ti-list-details me-1"></i> Catálogo de actualizaciones de referencia (para detectar faltantes)
-      </div>
-      <div class="card-body p-0">
-        <p class="text-muted small px-3 pt-3 mb-2">
-          No existe forma de bajar el catálogo completo de Microsoft Update a una instalación on-premise.
-          Cargá acá, mes a mes, los <strong>KB que esperás ver instalados</strong> en cada versión de
-          Windows (kernel base, igual que en la tabla de arriba) con su tipo. El plugin marcará como
-          <strong>faltante</strong> cualquier KB de un tipo verificado que no aparezca en el inventario
-          del equipo.
-        </p>
-        <table class="table table-sm mb-0" id="catalog-table">
-          <thead class="table-dark">
-            <tr>
-              <th>Kernel / Build base</th>
-              <th>KB</th>
-              <th>Tipo</th>
-              <th>Descripción</th>
-              <th>Publicación (AAAA-MM-DD)</th>
-              <th style="width:40px"></th>
-            </tr>
-          </thead>
-          <tbody>
-          <?php
-            // Fila molde para clonar al agregar nuevas (oculta si ya hay catálogo cargado)
-            $catalogRows = !empty($catalog) ? $catalog : [[]];
-          ?>
-          <?php foreach ($catalogRows as $ci => $entry): ?>
-          <tr<?= empty($catalog) ? ' class="catalog-template-row d-none"' : '' ?>>
-            <td><input type="text" name="cat_kbase[]" value="<?= htmlspecialchars($entry['kbase'] ?? '') ?>"
-                       class="form-control form-control-sm font-monospace" placeholder="ej. 10.0.26100"></td>
-            <td><input type="text" name="cat_kb[]" value="<?= htmlspecialchars($entry['kb'] ?? '') ?>"
-                       class="form-control form-control-sm font-monospace" placeholder="ej. KB5044284"></td>
-            <td>
-              <select name="cat_type[]" class="form-select form-select-sm">
-                <?php foreach ($updateTypes as $key => $info): ?>
-                  <option value="<?= htmlspecialchars($key) ?>"
-                          <?= ($entry['type'] ?? '') === $key ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($info['label']) ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-            </td>
-            <td><input type="text" name="cat_label[]" value="<?= htmlspecialchars($entry['label'] ?? '') ?>"
-                       class="form-control form-control-sm" placeholder="ej. Acumulativa octubre 2025"></td>
-            <td><input type="text" name="cat_date[]" value="<?= htmlspecialchars($entry['date'] ?? '') ?>"
-                       class="form-control form-control-sm" placeholder="2025-10-14"></td>
-            <td class="text-center">
-              <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1 catalog-row-del" title="Eliminar fila">
-                <i class="ti ti-trash"></i>
-              </button>
-            </td>
-          </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
-      <div class="card-footer d-flex gap-2">
-        <button type="button" id="catalog-add-row" class="btn btn-outline-secondary btn-sm">
-          <i class="ti ti-plus me-1"></i> Agregar fila
-        </button>
-        <button type="submit" name="save_catalog" class="btn btn-primary btn-sm">
-          <i class="ti ti-device-floppy me-1"></i> Guardar catálogo
-        </button>
-        <a href="?reset_catalog=1" onclick="return confirm('¿Vaciar el catálogo de actualizaciones?')"
-           class="btn btn-outline-secondary btn-sm">
-          <i class="ti ti-trash me-1"></i> Vaciar catálogo
-        </a>
-      </div>
-    </div>
-  </form>
-
   <div class="card mt-3">
     <div class="card-header fw-bold">
       <i class="ti ti-info-circle me-1"></i> Cómo actualizar después de Patch Tuesday
@@ -380,25 +228,6 @@ document.querySelectorAll('.eol-check').forEach(chk => {
     chk.addEventListener('change', () => {
         row.querySelector('input[name^="min_build"]').disabled = chk.checked;
     });
-});
-
-// ── Catálogo de actualizaciones: agregar / eliminar filas ──
-const catalogBody = document.querySelector('#catalog-table tbody');
-
-function bindCatalogRowDelete(row) {
-    row.querySelector('.catalog-row-del')?.addEventListener('click', () => row.remove());
-}
-catalogBody.querySelectorAll('tr').forEach(bindCatalogRowDelete);
-
-document.getElementById('catalog-add-row')?.addEventListener('click', () => {
-    const tpl = catalogBody.querySelector('tr');
-    const row = tpl ? tpl.cloneNode(true) : null;
-    if (!row) return;
-    row.querySelectorAll('input').forEach(i => i.value = '');
-    row.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
-    row.classList.remove('catalog-template-row', 'd-none');
-    catalogBody.appendChild(row);
-    bindCatalogRowDelete(row);
 });
 </script>
 <?php Html::footer(); ?>

@@ -371,25 +371,13 @@ $statusLabels = [
           </div>
           <div id="updates-content" class="d-none">
             <div id="updates-summary" class="alert mb-3"></div>
-
-            <h6 class="fw-bold mb-2"><i class="ti ti-circle-x text-danger me-1"></i>Faltantes</h6>
-            <div id="updates-missing-note" class="alert alert-secondary small mb-2"></div>
-            <table class="table table-sm table-striped mb-3 d-none" id="updates-missing-table">
-              <thead class="table-dark">
-                <tr><th>KB</th><th>Tipo</th><th>Descripción</th><th>Publicación</th></tr>
-              </thead>
-              <tbody id="updates-missing-body"></tbody>
-            </table>
-            <div id="updates-missing-empty" class="alert alert-success small mb-3 d-none">
-              <i class="ti ti-circle-check me-1"></i>
-              No se detectaron faltantes según el catálogo de referencia y los tipos verificados.
-            </div>
-
-            <h6 class="fw-bold mb-2"><i class="ti ti-circle-check text-success me-1"></i>Instaladas</h6>
-            <div class="alert alert-secondary small mb-2">
+            <div class="alert alert-secondary small mb-3">
               <i class="ti ti-info-circle me-1"></i>
-              Listado de <strong>hotfixes (KB)</strong> que el inventario del GLPI Agent detectó instalados,
-              con su fecha de instalación.
+              El inventario del GLPI Agent reporta los <strong>hotfixes (KB) instalados</strong> y su fecha de
+              instalación. No incluye el catálogo completo de Microsoft, por lo que las "faltantes" se estiman
+              por la <strong>antigüedad del último parche detectado</strong>: si pasó más de un ciclo de
+              Patch Tuesday (~45 días) sin novedades, es probable que haya actualizaciones pendientes de
+              instalar o de reportar.
             </div>
             <table class="table table-sm table-striped mb-0">
               <thead class="table-dark">
@@ -459,44 +447,6 @@ async function showUpdates(computerId, equipoName) {
             `<div><strong>${j.count}</strong> actualizacion(es) detectada(s) en el inventario` +
             (f.days !== null ? ` — última instalación <strong>${f.label}</strong>` : ` — ${f.label}`) +
             `</div>`;
-
-        // ── Faltantes (según catálogo de referencia + tipos verificados) ──
-        const checkedLabels = j.checked_types.map(t => j.update_types[t]?.label ?? t);
-        const noteEl = document.getElementById('updates-missing-note');
-        const missingTable = document.getElementById('updates-missing-table');
-        const missingEmpty = document.getElementById('updates-missing-empty');
-        const missingBody  = document.getElementById('updates-missing-body');
-        missingBody.innerHTML = '';
-
-        if (!j.has_catalog_for_os) {
-            noteEl.classList.remove('d-none');
-            noteEl.innerHTML = `<i class="ti ti-alert-triangle me-1"></i>` +
-                `No hay <strong>catálogo de referencia</strong> cargado para esta versión de Windows — ` +
-                `no se puede determinar qué falta. Cargalo en <a href="config.php">Configuración → ` +
-                `Catálogo de actualizaciones</a>.`;
-            missingTable.classList.add('d-none');
-            missingEmpty.classList.add('d-none');
-        } else {
-            noteEl.innerHTML = `<i class="ti ti-filter me-1"></i>` +
-                `Se verifican los tipos: <strong>${checkedLabels.join(', ') || 'ninguno seleccionado'}</strong> ` +
-                `(configurable en <a href="config.php">Configuración</a>).`;
-            if (j.missing.length > 0) {
-                missingTable.classList.remove('d-none');
-                missingEmpty.classList.add('d-none');
-                j.missing.forEach(m => {
-                    const tInfo = j.update_types[m.type] ?? {label: m.type, badge: 'secondary'};
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `<td class="font-monospace">${m.kb}</td>` +
-                        `<td><span class="badge bg-${tInfo.badge}">${tInfo.label}</span></td>` +
-                        `<td>${m.label || '—'}</td>` +
-                        `<td>${m.date || '—'}</td>`;
-                    missingBody.appendChild(tr);
-                });
-            } else {
-                missingTable.classList.add('d-none');
-                missingEmpty.classList.remove('d-none');
-            }
-        }
 
         const tbody = document.getElementById('updates-table-body');
         tbody.innerHTML = '';

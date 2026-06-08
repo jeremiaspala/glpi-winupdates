@@ -23,18 +23,8 @@ if ($id <= 0) {
 
 global $DB;
 $iter = $DB->request([
-    'SELECT' => ['c.id', 'c.name', 'oskv.name AS os_kernel'],
-    'FROM'   => 'glpi_computers AS c',
-    'LEFT JOIN' => [
-        'glpi_items_operatingsystems AS ios' => [
-            'FKEY' => ['ios' => 'items_id', 'c' => 'id'],
-            'AND'  => ['ios.itemtype' => 'Computer', 'ios.is_deleted' => 0],
-        ],
-        'glpi_operatingsystemkernelversions AS oskv' => [
-            'FKEY' => ['oskv' => 'id', 'ios' => 'operatingsystemkernelversions_id'],
-        ],
-    ],
-    'WHERE' => ['c.id' => $id, 'c.is_deleted' => 0],
+    'FROM'  => 'glpi_computers',
+    'WHERE' => ['id' => $id, 'is_deleted' => 0],
     'LIMIT' => 1,
 ]);
 $computer = $iter->current();
@@ -47,28 +37,11 @@ if (!$computer) {
 $updates   = PluginWinupdatesReport::getInstalledUpdates($id);
 $freshness = PluginWinupdatesReport::getUpdatesFreshness($updates[0]['fecha'] ?? null);
 
-$kernelBase   = trim($computer['os_kernel'] ?? '');
-$missing      = $kernelBase !== '' ? PluginWinupdatesReport::getMissingUpdates($kernelBase, array_column($updates, 'kb')) : [];
-$catalog      = PluginWinupdatesReport::getUpdateCatalog();
-$hasCatalogForKernel = false;
-foreach ($catalog as $entry) {
-    if (!empty($entry['kbase']) && str_starts_with($kernelBase, trim($entry['kbase']))) {
-        $hasCatalogForKernel = true;
-        break;
-    }
-}
-$updateTypes = PluginWinupdatesReport::getUpdateTypes();
-$checkedTypes = PluginWinupdatesReport::getCheckedTypes();
-
 echo json_encode([
-    'ok'                   => true,
-    'computer'             => $computer['name'],
-    'count'                => count($updates),
-    'updates'              => $updates,
-    'freshness'            => $freshness,
-    'missing'              => $missing,
-    'has_catalog_for_os'   => $hasCatalogForKernel,
-    'update_types'         => $updateTypes,
-    'checked_types'        => $checkedTypes,
+    'ok'        => true,
+    'computer'  => $computer['name'],
+    'count'     => count($updates),
+    'updates'   => $updates,
+    'freshness' => $freshness,
 ]);
 exit;

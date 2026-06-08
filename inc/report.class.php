@@ -360,6 +360,99 @@ class PluginWinupdatesReport extends CommonGLPI {
         return $results;
     }
 
+    // ── Detalle de actualizaciones instaladas (KBxxxxxxx) por equipo ──────
+    // Viene del inventario del GLPI Agent: los hotfixes de Windows se
+    // reportan como software instalado con nombre "KB1234567".
+    static function getInstalledUpdates(int $computerId): array {
+        global $DB;
+
+        $iter = $DB->request([
+            'SELECT'     => [
+                's.name AS kb',
+                new \Glpi\DBAL\QueryExpression('MAX(isv.date_install) AS fecha'),
+            ],
+            'FROM'       => 'glpi_items_softwareversions AS isv',
+            'INNER JOIN' => [
+                'glpi_softwareversions AS sv' => ['FKEY' => ['sv' => 'id', 'isv' => 'softwareversions_id']],
+                'glpi_softwares AS s'         => ['FKEY' => ['s' => 'id', 'sv' => 'softwares_id']],
+            ],
+            'WHERE'      => [
+                'isv.itemtype'   => 'Computer',
+                'isv.items_id'   => $computerId,
+                'isv.is_deleted' => 0,
+                's.name'         => ['REGEXP', '^KB[0-9]+$'],
+            ],
+            'GROUPBY'    => 's.name',
+            'ORDER'      => 'fecha DESC',
+        ]);
+
+        $updates = [];
+        foreach ($iter as $row) {
+            $updates[] = ['kb' => $row['kb'], 'fecha' => $row['fecha']];
+        }
+        return $updates;
+    }
+
+    // ── Resumen masivo: última fecha de parche + cantidad de KBs por equipo ──
+    // Para no hacer N+1 queries al pintar la tabla principal.
+    static function getLastUpdatesSummary(array $computerIds): array {
+        global $DB;
+        if (empty($computerIds)) return [];
+
+        $iter = $DB->request([
+            'SELECT'     => [
+                'isv.items_id',
+                new \Glpi\DBAL\QueryExpression('MAX(isv.date_install) AS last_date'),
+                new \Glpi\DBAL\QueryExpression('COUNT(DISTINCT s.name) AS n_kb'),
+            ],
+            'FROM'       => 'glpi_items_softwareversions AS isv',
+            'INNER JOIN' => [
+                'glpi_softwareversions AS sv' => ['FKEY' => ['sv' => 'id', 'isv' => 'softwareversions_id']],
+                'glpi_softwares AS s'         => ['FKEY' => ['s' => 'id', 'sv' => 'softwares_id']],
+            ],
+            'WHERE'      => [
+                'isv.itemtype'   => 'Computer',
+                'isv.items_id'   => $computerIds,
+                'isv.is_deleted' => 0,
+                's.name'         => ['REGEXP', '^KB[0-9]+$'],
+            ],
+            'GROUPBY'    => 'isv.items_id',
+        ]);
+
+        $summary = [];
+        foreach ($iter as $row) {
+            $summary[(int)$row['items_id']] = [
+                'last_date' => $row['last_date'],
+                'n_kb'      => (int)$row['n_kb'],
+            ];
+        }
+        return $summary;
+    }
+
+    // ── Indicador de "frescura" de parches: cuánto hace que no se detecta ──
+    // la instalación de un nuevo hotfix. Microsoft publica todos los meses
+    // (Patch Tuesday), así que más de ~45 días sin novedades es señal de
+    // actualizaciones probablemente faltantes.
+    static function getUpdatesFreshness(?string $lastDate): array {
+        if (!$lastDate) {
+            return ['status' => 'none', 'class' => 'secondary', 'icon' => 'ti-help',
+                    'label' => 'Sin parches detectados', 'days' => null];
+        }
+
+        $days = (int)(new \DateTime())->diff(new \DateTime($lastDate))->days;
+
+        if ($days <= 45) {
+            return ['status' => 'ok', 'class' => 'success', 'icon' => 'ti-circle-check',
+                    'label' => "hace {$days} días", 'days' => $days];
+        }
+        if ($days <= 120) {
+            return ['status' => 'warning', 'class' => 'warning', 'icon' => 'ti-alert-triangle',
+                    'label' => "hace {$days} días — revisar", 'days' => $days];
+        }
+        return ['status' => 'danger', 'class' => 'danger', 'icon' => 'ti-circle-x',
+                'label' => "hace {$days} días — posibles faltantes", 'days' => $days];
+    }
+
     // ── Estadísticas resumen ──────────────────────────────────────────────
     static function getSummary(array $computers): array {
         $counts = ['eol' => 0, 'outdated' => 0, 'updated' => 0, 'unknown' => 0, 'linux' => 0];

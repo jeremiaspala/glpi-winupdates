@@ -18,6 +18,12 @@ Seguro que en tu trabajo tenés algún equipo con Windows 10 corriendo parches d
 - Permite **forzar una actualización remota** por equipo o en bulk, creando una tarea de deploy en GLPI Inventory que el agente levanta en su próximo check-in
 - Historial de todos los deploys lanzados con estado por agente
 - Exportación a PDF para auditorías o compliance
+- **Detalle de actualizaciones (KB) instaladas y faltantes por equipo** — botón
+  <i class="ti ti-list-details"></i> en cada fila Windows: muestra el listado completo de hotfixes
+  (`KBxxxxxxx`) detectados por el inventario con su fecha de instalación, y estima si hay
+  **actualizaciones faltantes** según la antigüedad del último parche reportado (más de ~45 días sin
+  novedades = posible brecha de parcheo). En la tabla principal aparece una columna resumen
+  "Parches detectados" con la cantidad de KBs y la fecha del último.
 
 ---
 
@@ -36,6 +42,30 @@ apt-get update -y && apt-get upgrade -y
 ```
 
 El agente lo levanta en el próximo check-in. Si el agente está accesible en la red, el plugin le manda un wake-up HTTP al puerto 62354 para que lo ejecute de inmediato. El estado (Pendiente / Ejecutando / OK / Error) lo ves en la sección Historial.
+
+---
+
+## Detalle de actualizaciones instaladas / faltantes (auditoría)
+
+El GLPI Agent reporta los **hotfixes de Windows instalados** como software con nombre `KBxxxxxxx`
+(tabla `glpi_softwares`, vinculados al equipo vía `glpi_items_softwareversions`, con fecha de
+instalación en `date_install`). El plugin usa esos datos para mostrar, por equipo:
+
+- **Listado completo de KBs instalados**, ordenados por fecha (más reciente primero)
+- **Última fecha de parcheo detectada** y cuántos días pasaron desde entonces
+- Una **estimación de actualizaciones faltantes**: como no existe forma de bajar el catálogo
+  completo de Microsoft a una instalación on-premise, el plugin asume que si pasaron más de
+  ~45 días (más de un ciclo de Patch Tuesday) sin que se reporte un KB nuevo, probablemente
+  haya parches pendientes de instalar (o el agente no está actualizando el inventario)
+
+| Antigüedad del último KB | Indicador |
+|---|---|
+| ≤ 45 días | 🟢 Al día |
+| 46–120 días | 🟡 Revisar |
+| > 120 días | 🔴 Posibles faltantes |
+
+Accedé a este detalle desde el botón <i class="ti ti-list-details"></i> en la columna **Acciones**
+de cada equipo Windows en el dashboard.
 
 ---
 <img width="1875" height="876" alt="Win Updates" src="https://github.com/user-attachments/assets/80fbb431-c1f1-4917-98bd-df1c99e4ea1a" />
@@ -113,6 +143,7 @@ winupdates/
 └── front/
     ├── report.php             # Dashboard principal
     ├── push.php               # Endpoint AJAX para forzar actualización
+    ├── updates.php            # Endpoint AJAX: detalle de KBs instalados/faltantes por equipo
     ├── history.php            # Historial de tareas de deploy
     ├── pdf.php                # Vista de compliance/impresión
     └── config.php             # Configuración de builds de referencia

@@ -20,6 +20,9 @@ $computers     = array_filter($all_computers, function($row) use ($filters) {
 });
 $computers = array_values($computers);
 
+// Resumen de parches instalados (KB) por equipo — una sola query para toda la tabla
+$updatesSummary = PluginWinupdatesReport::getLastUpdatesSummary(array_column($computers, 'id'));
+
 $summary   = PluginWinupdatesReport::getSummary($all_computers);
 $total     = array_sum($summary);
 
@@ -170,13 +173,14 @@ $statusLabels = [
               <th>Estado</th>
               <th>Fin soporte</th>
               <th>Último inventario</th>
-              <th style="width:110px">Acciones</th>
+              <th>Parches detectados</th>
+              <th style="width:130px">Acciones</th>
             </tr>
           </thead>
           <tbody>
           <?php if (empty($computers)): ?>
             <tr>
-              <td colspan="9" class="text-center text-muted py-4">
+              <td colspan="10" class="text-center text-muted py-4">
                 <i class="ti ti-mood-empty fs-3 d-block"></i>
                 Sin equipos para los filtros aplicados.
               </td>
@@ -259,11 +263,39 @@ $statusLabels = [
                     : '—' ?>
               </td>
               <td>
+                <?php
+                  $usum = $updatesSummary[(int)$row['id']] ?? null;
+                  $ufresh = PluginWinupdatesReport::getUpdatesFreshness($usum['last_date'] ?? null);
+                ?>
+                <?php if (!$isWin): ?>
+                  <span class="text-muted small">— (Linux: ver paquetes vía apt)</span>
+                <?php else: ?>
+                  <span class="badge bg-<?= $ufresh['class'] ?> d-inline-flex align-items-center gap-1 px-2 py-1">
+                    <i class="ti <?= $ufresh['icon'] ?>"></i>
+                    <?= $usum ? (int)$usum['n_kb'] . ' KB · ' . $ufresh['label'] : $ufresh['label'] ?>
+                  </span>
+                  <?php if ($usum && $usum['last_date']): ?>
+                    <br><small class="text-muted" style="font-size:.7rem">
+                      último: <?= date('d/m/Y', strtotime($usum['last_date'])) ?>
+                    </small>
+                  <?php endif; ?>
+                <?php endif; ?>
+              </td>
+              <td>
                 <div class="d-flex gap-1 align-items-center">
                   <a href="<?= Computer::getFormURL() ?>?id=<?= (int)$row['id'] ?>"
                      class="btn btn-outline-primary btn-sm py-0 px-1" title="Ver equipo">
                     <i class="ti ti-eye"></i>
                   </a>
+
+                  <?php if ($isWin): ?>
+                  <button type="button"
+                          class="btn btn-outline-info btn-sm py-0 px-1"
+                          onclick="showUpdates(<?= (int)$row['id'] ?>, '<?= Html::cleanInputText($row['equipo']) ?>')"
+                          title="Ver actualizaciones (KB) instaladas y faltantes">
+                    <i class="ti ti-list-details"></i>
+                  </button>
+                  <?php endif; ?>
 
                   <?php /* Botón deploy: siempre visible, EOL también puede actualizarse */ ?>
                   <button type="button"
@@ -323,7 +355,52 @@ $statusLabels = [
     </div>
   </div>
 
+  <!-- Modal de detalle de actualizaciones (instaladas / faltantes) -->
+  <div class="modal fade" id="updatesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="ti ti-list-details me-2"></i>Actualizaciones — <span id="updates-equipo-name"></span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="updates-loading" class="text-center text-muted py-4">
+            <i class="ti ti-loader-2 fs-3 d-block"></i>Cargando…
+          </div>
+          <div id="updates-content" class="d-none">
+            <div id="updates-summary" class="alert mb-3"></div>
+            <div class="alert alert-secondary small mb-3">
+              <i class="ti ti-info-circle me-1"></i>
+              El inventario del GLPI Agent reporta los <strong>hotfixes (KB) instalados</strong> y su fecha de
+              instalación. No incluye el catálogo completo de Microsoft, por lo que las "faltantes" se estiman
+              por la <strong>antigüedad del último parche detectado</strong>: si pasó más de un ciclo de
+              Patch Tuesday (~45 días) sin novedades, es probable que haya actualizaciones pendientes de
+              instalar o de reportar.
+            </div>
+            <table class="table table-sm table-striped mb-0">
+              <thead class="table-dark">
+                <tr><th>KB</th><th>Fecha de instalación</th></tr>
+              </thead>
+              <tbody id="updates-table-body"></tbody>
+            </table>
+            <div id="updates-empty" class="text-center text-muted py-4 d-none">
+              <i class="ti ti-mood-empty fs-3 d-block"></i>
+              No se detectaron hotfixes (KB) en el inventario de este equipo.
+            </div>
+          </div>
+          <div id="updates-error" class="alert alert-danger d-none mb-0"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast de resultado -->
+
   <div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999">
     <div id="deploy-toast" class="toast align-items-center text-bg-success border-0" role="alert">
       <div class="d-flex">
@@ -343,6 +420,54 @@ let pendingComputerId = null;
 // Leer CSRF token de GLPI (meta tag generado por el framework)
 function getCsrfToken() {
     return document.querySelector('meta[property="glpi:csrf_token"]')?.content ?? '';
+}
+
+const UPDATES_URL = new URL('updates.php', window.location.href).href;
+
+async function showUpdates(computerId, equipoName) {
+    document.getElementById('updates-equipo-name').textContent = equipoName;
+    document.getElementById('updates-loading').classList.remove('d-none');
+    document.getElementById('updates-content').classList.add('d-none');
+    document.getElementById('updates-error').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('updatesModal')).show();
+
+    try {
+        const r = await fetch(`${UPDATES_URL}?id=${computerId}`);
+        const ct = r.headers.get('Content-Type') ?? '';
+        if (!ct.includes('application/json')) {
+            throw new Error(`Respuesta inesperada del servidor (HTTP ${r.status}).`);
+        }
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.msg || 'Error al obtener las actualizaciones.');
+
+        const f = j.freshness;
+        const summaryEl = document.getElementById('updates-summary');
+        summaryEl.className = `alert alert-${f.class} mb-3 d-flex align-items-center gap-2`;
+        summaryEl.innerHTML = `<i class="ti ${f.icon} fs-4"></i>` +
+            `<div><strong>${j.count}</strong> actualizacion(es) detectada(s) en el inventario` +
+            (f.days !== null ? ` — última instalación <strong>${f.label}</strong>` : ` — ${f.label}`) +
+            `</div>`;
+
+        const tbody = document.getElementById('updates-table-body');
+        tbody.innerHTML = '';
+        j.updates.forEach(u => {
+            const tr = document.createElement('tr');
+            const fecha = u.fecha ? new Date(u.fecha).toLocaleDateString('es-AR') : '—';
+            tr.innerHTML = `<td class="font-monospace">${u.kb}</td><td>${fecha}</td>`;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('updates-empty').classList.toggle('d-none', j.updates.length > 0);
+        document.querySelector('#updates-content table').classList.toggle('d-none', j.updates.length === 0);
+
+        document.getElementById('updates-loading').classList.add('d-none');
+        document.getElementById('updates-content').classList.remove('d-none');
+    } catch (e) {
+        document.getElementById('updates-loading').classList.add('d-none');
+        const errEl = document.getElementById('updates-error');
+        errEl.textContent = e.message || 'Error al comunicarse con el servidor.';
+        errEl.classList.remove('d-none');
+    }
 }
 
 function pushUpdate(computerId, equipoName) {

@@ -128,6 +128,7 @@ Html::header('Win Updates — Configuración', $_SERVER['PHP_SELF'], 'winupdates
   <?php Html::displayMessageAfterRedirect(); ?>
 
   <form method="POST">
+    <?= Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]) ?>
     <div class="card">
       <div class="card-header fw-bold">
         <i class="ti ti-table me-1"></i> Versiones de Windows y builds de referencia
@@ -193,6 +194,7 @@ Html::header('Win Updates — Configuración', $_SERVER['PHP_SELF'], 'winupdates
 
   <!-- ── Tabla Linux ── -->
   <form method="POST" class="mt-4">
+    <?= Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]) ?>
     <div class="card">
       <div class="card-header fw-bold">
         <i class="ti ti-brand-ubuntu me-1"></i> Versiones Linux de referencia
@@ -246,6 +248,7 @@ Html::header('Win Updates — Configuración', $_SERVER['PHP_SELF'], 'winupdates
 
   <!-- ── Tipos de actualización a verificar ── -->
   <form method="POST" class="mt-4">
+    <?= Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]) ?>
     <div class="card">
       <div class="card-header fw-bold">
         <i class="ti ti-filter me-1"></i> Tipos de actualización a verificar
@@ -279,6 +282,7 @@ Html::header('Win Updates — Configuración', $_SERVER['PHP_SELF'], 'winupdates
 
   <!-- ── Catálogo de actualizaciones de referencia ── -->
   <form method="POST" class="mt-4" id="catalog-form">
+    <?= Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]) ?>
     <div class="card">
       <div class="card-header fw-bold">
         <i class="ti ti-list-details me-1"></i> Catálogo de actualizaciones de referencia (para detectar faltantes)
